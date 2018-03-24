@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html class="img-no-display">
+	<head>
+		<script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+		<link rel="stylesheet" type="text/css" href="http://fonts.googleapis.com/css?family=VT323">
+		<link href='http://fonts.googleapis.com/css?family=Coda:800' rel='stylesheet' type='text/css'>
+		<meta name="viewport" content="width=device-width, initial-scale=0.4, minimum-scale=0.4, maximum-scale=0.4, user-scalable=no" />
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>Happy Birthday, Kayla</title>
+		<script>
+			//Globals 
+			var speed = 32;
+			var end_of_map = 3200 - 400 - 32
+			var game_started = false // 0-1 stopped_started
+			var is_moving = false;
+			var need_knockback = false;
+			var in_sequence = false;
+			var monsters_on = false;
+			var c_answer = "4783";
+			var answer_tries = 0;
+		
+			
+			var player1 = null;
+			
+			var char_size = 64; // in pixels
+			var anim_state = 0; // 0-2
+			var anim_direction = 0; // 0-3
+			var npc_anim_state = 0;
+			var keys = {};
+			
+			var dialog_shown = false;
+			var dialog_text = "";
+			var dialog_pages = 0;
+			var dialog_cur_page = 0;
+			var dialog_charcount = 140;
+			var dialog_next_action = 0;
+			var next_use = 0;
+			
+			var credit_msg = "123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 ";
+			var credit_msg = "To my beautiful wife,<br/> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; you are an amazingly creative, intelligent and radical person and I am extremely privileged to have you in my life. The moments we have shared over the years blissfully replay in my head but the memories to be created are nonpareil. You are going to be a wonderful mother and I look forward to experiencing every day of it. &lt;3"
+			
+			var puzz = [];
+			
+			
+			var s_jump ;
+			var s_splat ;
+			var s_angels ;
+			var s_pickup ;
+			var s_bgmusic ;
+			
+			
+			var font_puzz = false;
+			function show_font_puzz(){
+				if (confirm('Is it Comic Sans?\n\n OK = Yes\n Cancel = No')) {
+					alert("WRONG!");
+					return false;
+				}
+				if (confirm('Is it Trebuchet?')) {
+					alert("WRONG!");
+					return false;
+				}
+				if (confirm('Is it Impact?')) {
+					alert("You so smart!");
+					return true;
+				}
+				else {
+					alert("WRONG!");
+					return false;
+				}
+			}
+			//sounds
+			function loadSounds(){
+				 s_button = new Audio('/sounds/click.mp3');
+				 s_jump = new Audio('/sounds/jump1.mp3');
+				 s_splat = new Audio('/sounds/splat.mp3');
+				 s_angels = new Audio('/sounds/angels.mp3');
+				 s_pickup = new Audio('/sounds/pickup.mp3');
+				 s_bgmusic = new Audio('/sounds/song.mp3');
+				 muted = true;
+			}
+			
+			var last_change = 0
+			
+			function Player( ele ){
+				this.pos = 400;
+				this.y_vel = 0;
+				this.preg = false;
+				this.el = $(ele);
+				this.inventory = [];
+				
+				this.searchInventory = function ( id, remove ) {
+					for( i = 0 ; i < this.inventory.length ; i++){
+						var thing = this.inventory[i]
+						if(thing[0]["id"] == id){
+							if(remove) this.inventory.splice(i, 1);
+							return true;
+						}
+					}
+					return false;
+				}
+				this.dist_to = function(ele){
+					return parseInt(ele.css("left")) + parseInt(ele.css("width"))/2  - 400;
+				}
+				
+				this.find_action_target = function (){
+					var min_dist = 999999;
+					var closest = null;
+					$(".usable").each( function( i ){
+						var dir = ((anim_direction*2) - 3);
+						var diff = $(this).data().pos - player1.pos + 16  * dir; 
+						if(((dir < 0 && diff < 0) || (dir > 0 && diff > 0))  &&  Math.abs(diff) < 150 && min_dist > Math.abs(diff)){
+							//console.log($(this).data().id + " - focus point: " + (diff) );
+							closest = $(this);
+							min_dist =  Math.abs(diff) ;
+						}
+					});
+					
+					//console.log(closest);
+					return closest;
+				}
+				
+				this.knockback = function( velocity) {
+					need_knockback = true;
+				}
+				
+				this.is_touching = function (target){
+					if ( 400 < parseInt(target.css("left")) + parseInt(target.css("width")) 
+						&& 400 + 64  > parseInt(target.css("left"))
+						&& parseInt(this.el.css("bottom")) < parseInt(target.css("bottom")) + parseInt(target.css("height"))
+						&& parseInt(this.el.css("bottom")) + parseInt(this.el.css("height")) > parseInt(target.css("bottom"))) {
+					// The objects are touching
+						return true;
+					}
+				}
+			}
+			
+			function NPC( id, options){
+				this.id = (typeof id !== 'undefined') ? id : "NOID";
+				this.pos = options["pos"];
+				this.last_talk = 0;
+				this.name = options["name"];
+				this.classes = options["classes"];
+				this.img = options["img"];
+				this.hasKey = options["hasKey"];
+				this.anim_direction = 0;
+				this.anim_state = 0 
+				this.y_vel = 0;
+				
+				this.speech_text = options["speech_text"];
+				
+				x = (typeof x !== 'undefined') ? x : 0;
+				this.use_action = (typeof options["use_action"] !== 'undefined') ? options["use_action"] :function (){
+					showDialog(this.speech_text,  $("#"+this.id)); 
+					tmpdir = this.anim_direction;
+					this.change_anim_dir( player1.pos - this.pos );
+				};
+				
+				this.change_anim_dir = function(dir){
+					if(dir < 0){
+						anim_direction = 1;
+					}
+					else if (dir > 0) {
+						anim_direction = 2;
+					}
+					else {
+						anim_direction = 0;
+					}
+					$("#"+this.id).find("img").css("top", -1 * anim_direction * char_size + "px")
+				}
+				
+				this.jump = function( vel ){
+					vel = (typeof vel !== 'undefined') ? vel : 32;
+					if($("#"+this.id).hasClass("Jumper")) this.y_vel = vel;
+					//else console.log("not a jumper")
+					
+				}
+				
+				
+				//Jump Physics
+				var ele = $("#"+this.id);
+				setInterval( function() {
+						var obj = $(ele["selector"]).data();
+						if( typeof obj !== "undefined" && !isNaN(obj.y_vel) && obj.y_vel != 0){
+							if(parseInt($("#"+obj.id).css("bottom"))+ obj.y_vel < 45 ){
+								obj.y_vel = 0
+								$("#"+obj.id).css("bottom", "45px")
+							}
+							else {
+							
+								$(ele["selector"]).find("img").css("left", -1 * this.anim_state * char_size + "px")
+								this.anim_state = (this.anim_state+1) % 3
+								$("#"+obj.id).css("bottom", "+=" +( obj.y_vel)+'px' );
+								obj.y_vel = obj.y_vel - 10;
+							}
+						}
+					ele.find("img").css("left", -1 * this.anim_state * char_size + "px")
+					//console.log(ele.data().name + " is animating");
+					this.anim_state = (this.anim_state+1) % 2
+				}, 50 );
+				
+				
+				//move to location
+				$("#viewport").append('<div id="'+id+'" class="'+this.classes+'" anim_state="0" style="left:'+ (this.pos - player1.pos + 400) +'px;"><img src="'+this.img+'" /></div>');
+				$("#"+id).data(this);
+				
+				//animate NPCs
+				var npc = this;
+				setInterval( function() {
+					var myEle = $("#"+npc.id);
+					if( !myEle.is(".NPC") ) return;
+					myEle.find("img").css("left", -1 * npc.anim_state * char_size + "px")
+					npc.anim_state = (npc.anim_state+1) % 3
+				}, 400 + Math.random() * 500);
+				
+				var jumper = $("#"+this.id).data();
+				$("#"+this.id).on('click', function(){jumper.jump(32)} );
+			}
+			
+			function counter(id, options){
+			
+				this.id = (typeof id !== 'undefined') ? id : "NOID";
+				this.value = options["val"];
+				this.pos = options["pos"];
+				
+				this.use_action = (typeof options["use_action"] !== 'undefined') ? options["use_action"] : function (){
+					
+					this.value = (this.value + 1 )% 10;
+					$("#"+this.id).find("#c_button").css("background-image", 'URL("/images/red-button-down.png")');
+					s_button.play();
+					$("#"+this.id).find("#number").text(this.value);
+					var but = this;
+					setTimeout(function(){
+						$("#"+but.id).find("#c_button").css("background-image", 'URL("/images/red-button.png")');
+					}, 300);
+				}
+				
+				$("#viewport").append('<div id="'+id+'" class="counter static usable" anim_state="0" style="left:'+ (this.pos - player1.pos + 400) +'px;"><div id="number">'+this.value+'</div><div id="c_button"></div>');
+				$("#"+id).data(this);
+			}
+			function shift( ele, m ){
+				$(ele).animate({
+					"left": '+='+m+'px'
+				}, 100, "linear" );
+			}
+			
+			
+			function shift2( ele, m ){
+				$(ele).css(
+					"left", '+='+m+'px'
+				);
+			}
+			
+			function shift_scene( velocity  ){
+				if( player1.pos + velocity < 400) {
+					is_moving = false;
+					return;
+				}
+				shift("#farground", -0.5 * velocity );
+				shift("#midground", -0.75 * velocity );
+				shift("#nearground", -velocity );
+				shift("#ground", -velocity );
+				shift(".NPC", -velocity );
+				shift(".monster", -velocity );
+				shift(".pet", -velocity );
+				shift(".static", -velocity );
+				player1.pos += velocity;
+				setTimeout(function(){ is_moving = false; }, 100);
+			}
+			
+			function shift2_scene( velocity  ){
+				if(player1.pos + velocity < 400) return;
+				shift2("#farground", -0.5 * velocity );
+				shift2("#midground", -0.75 * velocity );
+				shift2("#nearground", -velocity );
+				shift2("#ground", -velocity );
+				shift2(".NPC", -velocity );
+				shift2(".monster", -velocity );
+				shift2(".pet", -velocity );
+				shift2(".static", -velocity );
+				player1.pos += velocity;
+				setTimeout(function(){ is_moving = false; }, 100);
+			}
+			
+			function reset_scene(){
+				$("#farground").css("left", "0px");
+				$("#midground").css("left", "0px");
+				$("#nearground").css("left", "0px");
+				$("#ground").css("left", "0px");
+				
+				$(".NPC").remove();
+				$(".pet").remove();
+				$(".monster").remove();
+				$(".static").remove();
+				player1.pos = 400;
+				monsters_on = false;
+				
+				is_moving = false; 
+			}
+			
+			function jump( m ){
+				player1.y_vel = m
+				s_jump.play();
+			}
+			
+			function change_anim_dir( dir){
+				if(dir < 0){
+					anim_direction = 1;
+				}
+				else if (dir > 0) {
+					anim_direction = 2;
+				}
+				else {
+					anim_direction = 0;
+				}
+				player1.el.find("img").css("top", -1 * anim_direction * char_size + "px")
+			}
+			
+			function change_anim_state(){
+				if (new Date().getTime() < last_change + 200)
+					return;
+				last_change = new Date().getTime();
+				player1.el.find("img").css("left", -1 * anim_state * char_size + "px")
+				anim_state = (anim_state+1) % 3
+			}
+			
+			function can_move(direction){
+				if(need_knockback || is_moving || !game_started || $("#dialog").is(':visible')){
+					return false;
+				}
+				if(player1.pos + speed * direction < 400 || player1.pos + speed * direction > end_of_map){
+					return false;
+				}
+				return true;
+			}
+			
+			function move(direction){
+				change_anim_dir(direction);
+				change_anim_state();
+				if(can_move(direction)){
+					is_moving = true;
+					shift_scene( speed * direction );
+				}
+			}
+			
+			function startSeq ( seq, target ){
+				if(!in_sequence){
+					if(seq == "LOVE"){
+						in_sequence = true;
+						s_angels.play();
+						keys = {};
+						//console.log(target.data().pos - player1.pos);
+						heartID = spawnStatic("/images/heart.png", (target.data().pos - player1.pos) / 2 + 416, 96);
+						$("#"+heartID).animate({
+							"bottom": '+=150px',
+							"opacity": '0.0'
+							}, 3000, function(){
+							oldpic = player1.el.find("img").attr("src");
+							setTimeout(function(){ player1.el.find("img").attr("src","/images/k_green_preg.png") }, 100);
+							setTimeout(function(){ player1.el.find("img").attr("src",oldpic) }, 200);
+							setTimeout(function(){ player1.el.find("img").attr("src","/images/k_green_preg.png") }, 300);
+							setTimeout(function(){ player1.el.find("img").attr("src",oldpic) }, 400);
+							setTimeout(function(){ player1.el.find("img").attr("src","/images/k_green_preg.png") }, 500);
+							setTimeout(function(){ player1.el.find("img").attr("src",oldpic) }, 600);
+							setTimeout(function(){ player1.el.find("img").attr("src","/images/k_green_preg.png") }, 700);
+							setTimeout(function(){ player1.el.find("img").attr("src",oldpic) }, 800);
+							setTimeout(function(){ player1.el.find("img").attr("src","/images/k_green_preg.png") }, 900);
+							setTimeout(function(){ player1.el.find("img").attr("src",oldpic) }, 1000);
+							setTimeout(function(){ player1.el.find("img").attr("src","/images/k_green_preg.png") }, 1100);
+							setTimeout(function(){ player1.el.find("img").attr("src",oldpic) }, 1200);
+							setTimeout(function(){ player1.el.find("img").attr("src","/images/k_green_preg.png");
+									player1.preg = true;
+									in_sequence = false;
+									setTimeout( function() { 
+										s_angels.pause();
+										s_angels.currentTime = 0;
+									}, 3000);
+								}, 1300);
+						});
+						setTimeout(function(){
+							$("#"+heartID).remove();
+						}, 3000);
+					}
+					if(seq == "JUMP"){
+						in_sequence = true;
+						
+						// Jump NPCs
+						setInterval( function(){
+							var random = Math.floor(Math.random() * $('.NPC').length);
+							$('.NPC').eq(random).data().jump(32);
+							
+							$('.NPC').find("img").css("left", -1 * Math.floor(Math.random() * 3) * char_size + "px")
+							//npc.anim_state = (npc.anim_state+1) % 3
+						}, 100 );
+						
+						//jump player
+						setInterval( function(){
+							player1.y_vel = 64;
+						}, 1000);
+						
+						HB_ID = spawnStatic("/images/HB.png", 100, 200);
+						$("#viewport").append("<div id='credit_cont'><div id='credit_box'><div id='credit_text'>"+credit_msg+"</div></div></div>");
+						setTimeout(function(){
+							$("#"+HB_ID).animate({"opacity": "0.2"}, 3000);
+							$("#credit_text").animate({"top": "0px"}, 30000, "linear", function(){
+								$("#US").fadeIn(1500);
+							});
+						}, 5000);
+					}
+				}
+			}
+			
+			function pickUp( id ){
+				//console.log(id);
+				if(typeof id === 'undefined') return;
+				var thing = $("#"+id);
+				player1.inventory.push(thing);
+				thing.remove()
+				//$("#"+id).fadeOut( 300, function() { $("#"+id).remove() });
+				s_pickup.play();
+				//setTimeout(function(){ item.remove() } , 100) ;
+				
+				//console.log("Picking up " + item.attr("class") );
+			}
+			
+			function showDialog( message, target ){
+				if( dialog_next_action > new Date().getTime()){
+					return;
+				}
+				//target = player1.find_action_target()
+				dialog_text = message;
+				dialog_name = "";
+				if ( target != null){
+					if(target.data().pos < player1.pos ){
+						change_anim_dir(-1);
+					}
+					else{
+						change_anim_dir(1);
+					}
+					dialog_text = target.data().speech_text;
+				}
+				//dialog_cur_page++;
+				dialog_pages = Math.ceil(dialog_text.length / dialog_charcount)
+				//$("#dialog > p").html( dialog_name + dialog_text.substring(0, dialog_charcount) + "..." );
+				//dialog_cur_page++;
+				//dialog_next_action = new Date().getTime() + 200;
+				stepDialog();
+				$("#dialog").fadeIn(500);
+			}
+			
+			function stepDialog(){
+				//console.log( dialog_next_action +" < "+ new Date().getTime());
+				if( dialog_next_action > new Date().getTime()){
+					return;
+				}
+				
+				if( dialog_cur_page >= dialog_pages){
+					$("#dialog").fadeOut(500);
+					dialog_cur_page = 0;
+					dialog_pages = 0;
+					dialog_text = "";
+					return;
+				}
+				
+				//console.log(dialog_text);
+				dialog_next_action = new Date().getTime() + 400;
+				continue_text = dialog_cur_page + 1 == dialog_pages ? "" : "...";
+				dialog_name =   (typeof target.data().name !== "undefined") ? "<b>"+target.data().name + ": </b>" : "";
+				$("#dialog > p").html( dialog_name + dialog_text.substring(dialog_cur_page*dialog_charcount, (dialog_cur_page+ 1) * dialog_charcount) + continue_text );
+				
+				dialog_cur_page++;
+			}
+			
+			function spawnMonster(loc){
+				loc = (typeof loc !== 'undefined') ? loc : 800;
+				//console.log(loc);
+				$("#viewport").append('<div class="monster" anim_state="0" style="left:'+ loc +'px;"><img src="/images/ant.png" /></div>');
+			}
+			
+			function spawnStatic(src, x, y, text, useFunc){
+				x = (typeof x !== 'undefined') ? x : 0;
+				y = (typeof y !== 'undefined' && y !== null) ? y : 40;
+				//console.log(x);
+				id = Math.floor(Math.random() * 512)
+				name = src.replace(/^.*[\\\/]/, '').replace(/\..*/, '');
+				text = (typeof text !== 'undefined') ? text : 'It seems to be a '+name;
+				$("#viewport").append('<div id="'+id+'" name="'+name+'" class="static talkable" text="'+text+'" style="left:'+ x +'px; bottom:'+ y +'px;"><img id="'+id+'" name="'+name+'" src="'+src+'" /></div>');
+				$("#"+id).on('click', function(){ useFunc(id) })
+				return id;
+			}
+			
+			function spawnPlant(src, x, y, text, useFunc, hasKey ){
+				x = (typeof x !== 'undefined') ? x : 0;
+				y = (typeof y !== 'undefined' && y !== null) ? y : 40;
+				id = Math.floor(Math.random() * 512)
+				text = (typeof text !== 'undefined') ? text : 'It seems to be a '+src.replace(/^.*[\\\/]/, '').replace(/\..*/, '');
+				classes = "static plant talkable " + (hasKey ? "keyholder" : "" );
+				$("#viewport").append('<div id="'+id+'"class="'+classes+'" text="'+text+'" style="left:'+ x +'px; bottom:'+ y +'px;"><img src="'+src+'" /></div>');
+				return id;
+			}
+			
+			function loadScene(num){
+				reset_scene();
+				switch(num){
+					case 1:
+						//s_bgmusic.play();
+						monsters_on = true;
+						$("#ground").attr("src", "/images/ground.png"); 
+						$("#midground").attr("src", "/images/midground.png");
+						$("#farground").attr("src", "/images/clouds_quarter_scale.png"); 
+						
+						mNPC = new NPC("m_crop", {
+								name: "Moe",
+								img: "/images/m_jeans.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 1250,
+								speech_text: "OMG, You're pregnant!",
+								use_action: function(){
+									if( !font_puzz){
+										showDialog(this.speech_text = "What is this font '<span id='font_puzz'>AaBbCcDdEe</span>' ?",  $("#"+mNPC.id));
+										
+										setTimeout(function(){ font_puzz = show_font_puzz();
+								//	}
+								//	else if( !player1.preg){
+										//console.log("Its MOE!");
+										stepDialog();
+											if( font_puzz){
+												startSeq("LOVE", $("#"+mNPC.id));
+												dialog_next_action = new Date().getTime() + 200;
+												return;
+											}
+								//	}
+										}, 2000);
+									}
+									else showDialog(this.speech_text = "OMG, You're pregnant!",  $("#"+mNPC.id));
+								}
+							});
+						new NPC("pug_crop", {
+								name: "Ollie",
+								img: "/images/pug.png",
+								classes: "talkable pet usable Jumper",
+								pos: 850,
+								speech_text: "Ruff!"
+							});
+						new NPC("pug_crop2", {
+								name: "Sebastian",
+								img: "/images/pug.png",
+								classes: "talkable pet usable Jumper",
+								pos: 910,
+								speech_text: "Yip, yip, yip"
+							});
+						new NPC("startSign", {
+								img: "/images/sign.png",
+								classes: "static usable",
+								pos: 368,
+								speech_text: "You should probably go talk to your hoosban and dogs"
+							});
+						new NPC("house", {
+								img: "/images/house.png",
+								classes: "static usable",
+								pos: end_of_map - 0, //64,
+								speech_text: "You need a key to enter <br/><br/> (Check the garden.)",
+								use_action: function(){
+									if(!player1.preg){
+										showDialog("Go talk to your husband!");
+										return;
+									}
+									if(player1.searchInventory("key", true)){
+										//console.log("key found. Enter");
+										$("#curtain").fadeIn(500, function(){ 
+											is_moving  = true;
+											setTimeout(function() { loadScene(2);} , 1000);
+										});
+									}
+									else showDialog(this.speech_text,  $("#"+this.id));
+								}
+							});
+						
+						plant_num = 10;
+						key_i = Math.floor(Math.random() * plant_num);
+						//console.log( "KEY IS UNDER PLANT " + key_i);
+						for( i = 0 ; i < plant_num; i ++){
+							
+							tmpPlantID = new NPC("plant"+i, {
+								img: "/images/plant1.png",
+								classes: "static plant usable",
+								pos: 1500+32*i,
+								hasKey: key_i == i,
+								use_action: function(){
+									dialog_next_action = new Date().getTime() + 500;
+									$("#"+this.id).animate({
+									"bottom": '+=32px',
+									"opacity": '0.0'
+									}, 500,"linear", function () {
+										
+										$(this).remove();
+									});
+									if($("#"+this.id).data().hasKey){
+											keyID = new NPC("key",{
+												pos: $("#"+this.id).data().pos,
+												img: "/images/key.png",
+												classes: "static usable front",
+												speech_text: "You found a key!",
+												use_action: function() { pickUp( keyID["id"] ) }
+											});
+										}
+									return;
+								}
+							});
+						}
+						break;
+					case 2:
+						//end_of_map = 2000;
+						$("#nearground").attr("src", "/images/home_interior.png"); 
+						$("#ground").attr("src", "/images/pixel.png");
+						$("#midground").attr("src", "/images/midground.png");
+						$("#farground").attr("src", "/images/clouds_quarter_scale.png"); 
+						
+						mNPC = new NPC("m_crop", {
+								name: "Moe",
+								img: "/images/m_jeans.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 2756,
+								speech_text: "",
+								use_action: function(){
+									answer = "";
+									answer_tries++;
+									for( i = 0 ; i < puzz.length; i++){
+										answer += $("#"+puzz[i]["id"]).data().value;
+									}
+									//console.log(answer);
+									if( answer === c_answer) {
+										s_pickup.play();
+										//showDialog(this.speech_text = "Name that font ....",  $("#"+this.id))
+										showDialog(this.speech_text = "You got it right!!! HAPPY BIRTHDAY!",  $("#"+this.id))
+										setTimeout( function() {
+											stepDialog();
+											$("#curtain").fadeIn(500, function(){ 
+												is_moving  = true;
+												setTimeout(function() { loadScene(3);} , 1000);
+											});
+										}, 3000);
+									}
+									else if( answer_tries < 3 ){
+										showDialog(this.speech_text = "Sorry, try again. <br/> <br/>Hint: Count the letters in <b><i>Bold Italic</i></b>",  $("#"+this.id))
+									}
+									else if( answer_tries < 6 ){
+										showDialog(this.speech_text = "The words are 'Love', 'journey', 'Portland', and 'day'",  $("#"+this.id))
+									}
+									else {
+										showDialog(this.speech_text = "The code is '"+c_answer+"'",  $("#"+this.id))
+									}
+									
+								}
+						});
+						
+						cNPC = new NPC("courtney", {
+								name: "Courtney",
+								img: "/images/c_dress.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 1300,
+								speech_text: "Happy birthday to my wonderfully beautiful amazing friend! I am so happy for you and your upcoming <b><i>journey</i></b> into motherhood. I love you with my whole heart! I'm so excited to see where the next year takes you. I know it's going to be one of the best years of your    life! Cheers my  love.",
+						});
+						cNPC.change_anim_dir(0);
+						
+						
+						aNPC = new NPC("alyson", {
+								name: "Alyson",
+								img: "/images/a_coat.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 1088,
+								speech_text: "My dearest Mrs. Moore, I wish you the happiest of birthdays. You are about to embark on the greatest adventure: motherhood!! I am so excited to meet the little bean but even more excited that two of the best people I know are going to be parents!! We've had many, many good times, and I am excited about creating new ones with the three of you. Here's to looking at you kid, HAPPY BIRTHDAY!!! <b><i>Love</i></b> you to  the moon and back! Love, Alyson",
+						});
+						aNPC.change_anim_dir(1);
+						
+						jNPC = new NPC("jenny", {
+								name: "Jenny",
+								img: "/images/j_skirt.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 1512,
+								speech_text: "Happy Birthday, Kword!! Greetings from <b><i>Portland!</i></b>",
+						});
+						jNPC.change_anim_dir(-1);
+						
+						
+						bNPC = new NPC("blake", {
+								name: "Blake",
+								img: "/images/b_suit.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 2048,
+								speech_text: "Mama Moore, I hope you have the best non-alcoholic birthday, ever. I'm so excited for you two and can't wait to meet Lil' Moore. Kick back  and enjoy an O'Douls, you deserve it! By the way, you don't look a  <b><i>day</i></b> over 30! Love, Blake R. Oxford",
+						});
+						bNPC.change_anim_dir(0);
+						
+						puzz_len = 4;
+						for( i = 0; i < puzz_len; i++){
+							puzz[i] = new counter("c"+i, {
+								val: Math.floor( Math.random() * 10),
+								pos: 2350 + i * 64
+							});
+						}
+						
+						
+						break;
+					case 3:
+						change_anim_dir(0);
+						s_bgmusic.play();	
+						end_of_map = 400;
+						$("#nearground").css("background-color", "black"); 
+						$("#nearground").css("width", "800px"); 
+						$("#nearground").attr("src", "/images/pixel.png"); 
+						$("#ground").attr("src", "/images/pixel.png");
+						$("#midground").attr("src", "/images/pixel.png");
+						$("#farground").attr("src", "/images/pixel.png"); 
+						
+						
+						cNPC = new NPC("courtney", {
+								img: "/images/c_dress.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 600,
+								speech_text: "I'm Courtney",
+						});
+						
+						
+						aNPC = new NPC("alyson", {
+								img: "/images/a_coat.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 500,
+								speech_text: "I'm Alyson",
+						});
+						
+						jNPC = new NPC("jenny", {
+								img: "/images/j_skirt.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 200,
+						});
+						
+						bNPC = new NPC("blake", {
+								img: "/images/b_suit.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 100,
+						});
+						mNPC = new NPC("moe", {
+								img: "/images/m_jeans.png",
+								classes: "NPC talkable usable Jumper",
+								pos: 300
+						});
+						$(".NPC").each( function(index, entry){
+							$(this).data().change_anim_dir(0);
+						});
+						
+						startSeq("JUMP");
+						
+    					break;
+    				default:
+    					break;
+				}
+				setTimeout(function(){ $("#curtain").fadeOut(500)}, 2000);
+			
+			}
+
+		//When page is ready.
+			$( function(){
+					loadSounds();
+					player1 = new Player("#char_crop");
+					loadScene(1);
+					//setTimeout( function(){loadScene(2)}, 60000);
+					
+						//spawnStatic("/images/heart.png", 416, parseInt(player1.el.css("bottom")) + 64 );
+					// key press and emulation
+					$("body").keydown(function(event){
+					    if(!in_sequence){
+							keys[event.which] = true;
+							if(!game_started){
+								$("#start_screen").fadeOut(1000);	
+								game_started = true;
+							}
+						}
+					});
+					$("body").keyup(function(event){
+					    if(!in_sequence){
+							delete keys[event.which];
+						}
+					});
+					
+					$(".keyEmu").mousedown(function(){
+						keys[$(this).attr("value")] = true;
+					});
+					$(".keyEmu").mouseup(function(){
+						delete keys[$(this).attr("value")];
+					});
+					$('.keyEmu').bind('touchstart', function(e){
+						$(e.target).trigger('mousedown');
+					});
+					$('.keyEmu').bind('touchend', function(e){
+						$(e.target).trigger('mouseup');
+					});
+					
+					$("#mute").on("click", function(){
+						if(muted){
+							muted = false;
+							$("#mute").css("width", "32px");
+							s_bgmusic.muted = false
+						}
+						else{
+							muted = true;
+							$("#mute").css("width", "22px");
+							s_bgmusic.muted = true;
+						}
+					});
+					
+					setInterval( function() {
+					
+					// Idle animation
+						if (!in_sequence && new Date().getTime() > last_change + 5000)
+							change_anim_dir(0);
+							
+						// draw inventory
+						$(".invItem").remove();
+						//console.log(player1.inventory);
+						player1.inventory.forEach(function(item, index){
+							var thisEle = $(item["selector"]);
+							//console.log(item[0].innerHTML);
+							$("#inventory").append("<div class='invItem'>"+item[0].innerHTML+"</div>");
+						});
+						
+					}, 3000);
+					
+					//
+					setInterval( function() {
+						//check jump
+						//console.log($("#char_crop").css("bottom"));
+						if(player1.y_vel != 0){
+							if(parseInt($("#char_crop").css("bottom"))+ player1.y_vel < 45 ){
+								player1.y_vel = 0
+								player1.el.css("bottom", "45px")
+							}
+							else {
+								player1.el.css("bottom", "+=" +( player1.y_vel)+'px' );
+								player1.y_vel = player1.y_vel - 10;
+							}
+						}
+						
+						if(need_knockback && !is_moving){
+							is_moving = true;
+							shift_scene( -32  )
+							setTimeout(function(){player1.y_vel = 15;}, 100);
+							need_knockback = false;
+						}
+						$(".monster").each( function (index) {
+							if( player1.is_touching($(this)) ){
+								if(parseInt(player1.el.css("bottom")) > parseInt($(this).css("bottom")) ){
+									$(this).remove();
+									s_splat.play();
+									player1.y_vel = 25;
+								}
+								else{
+									player1.knockback( -260);
+									//player1.y_vel = 25;
+								}
+							}
+						});
+						
+						
+						//Update coords
+						$("#pos").text(player1.pos);
+						$("#y_vel").text(mNPC.y_vel);
+						$("#is_mov").text(is_moving);
+					}, 50);
+					
+					//keyboard handling
+					setInterval( function() {
+						//keys[event.which] = true;
+						if(keys[39]){ // right
+							move( 1 );
+						}
+						else if(keys[37]){ // left
+							move( -1 );
+						}
+						
+						if(keys[32]){ // space
+							if( $("#dialog").is(':visible') ) {
+								stepDialog();
+							}
+							else if(parseInt(player1.el.css("bottom")) == 45 ){
+								jump( 32 );
+							}
+						}
+						
+						if(keys[84] || keys[13]){ // T (talk)
+							
+							if( $("#dialog").is(':visible') ) {
+								stepDialog();
+								return;
+							}
+							target = player1.find_action_target()
+							if( typeof target !== "undefined" && target !== null){
+								//console.log(target);
+								if(next_use < new Date().getTime()){
+									target.data().use_action();
+									next_use = new Date().getTime() + 500;
+								}
+							}
+							//else{
+							//	showDialog("Nothing here");
+							//}
+						}
+					
+					}, 10);
+					
+					
+					//animate pets
+					setInterval( function() {
+						$(".pet").each( function(index){
+							if( 400 > parseInt($(this).css("left")) ){
+								$(this).find("img").css("top", "-64px");
+							}
+							else{
+								$(this).find("img").css("top", "0px");
+							}
+							
+							//console.log($(this).find("img").css("left"));
+							$(this).find("img").css("left", -1 * Math.floor(Math.random() * 3) * char_size/2 + "px")
+							//$(this).find("img").css("left", 0 + "px")
+							npc_anim_state = (npc_anim_state+1) % 2 
+						});
+					}, 100);
+					
+					//animate monsters
+					setInterval( function() {
+						mon_anim_state = parseInt($(".monster").attr("anim_state"));
+						$(".monster>img").css("left", -1 * mon_anim_state * char_size/2 + "px")
+						$(".monster").attr("anim_state", (mon_anim_state+1) % 3  )
+						$(".monster").css("left", "-=10px")
+					}, 300);
+					
+					
+					$('#start_screen h1').fadeOut(500);
+					$('#start_screen h1').fadeIn(500);
+					//spawn monsters
+					setInterval( function() {
+						if ( game_started && monsters_on &&  Math.random() < 0.5){
+							spawnMonster();
+						}
+						
+						$('#start_screen h1').fadeOut(500);
+						$('#start_screen h1').fadeIn(500);
+					}, 3000);
+					
+					$("#start_screen").on("click", function(event){
+						if(!game_started){
+							$("#start_screen").fadeOut(1000);	
+							game_started = true;
+						}
+					});
+					
+					$("#viewport").on("click", ".counter", function(event){
+						//alert("click");
+						$(this).data().use_action();
+					});
+					
+				}
+				
+			)
+		</script>
+		<style>
+			html {
+				height: 100%;
+				overflow: hidden;
+				font-family: 'VT323' !important;
+				-webkit-touch-callout: none;
+				-webkit-user-select: none;
+				-khtml-user-select: none;
+				-moz-user-select: none;
+				-ms-user-select: none;
+				user-select: none;
+			}
+			body {
+				background: url(images/bg.png) no-repeat center center fixed;
+				-webkit-background-size: cover;
+				-moz-background-size: cover;
+				-o-background-size: cover;
+				background-size: cover;
+				height: 100%;
+			}
+			div#outer {
+				position: absolute;
+				display: table;
+				height: 100%;
+				width: 100%;
+			}
+			div#container {
+				position: absolute;
+				height: 100%;
+				width: 100%;
+				display: table-cell;
+				text-align: center;
+				vertical-align: middle;
+			}
+			#paragraph {
+				padding: 20px 0 30px 40px;
+				margin: 0 auto;
+				text-align: left;
+				width: 560px;
+				color: #146b9d;
+				font-size: 11pt;
+				font-weight: bold;
+				font-family: Verdana;
+			}
+			#viewport {
+				position: relative;
+				border: 4px solid black;
+				
+				background: #2ab0ed; /* Old browsers */
+				background: -moz-linear-gradient(top,  #2ab0ed 0%, #e4f5fc 100%); /* FF3.6+ */
+				background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#2ab0ed), color-stop(100%,#e4f5fc)); /* Chrome,Safari4+ */
+				background: -webkit-linear-gradient(top,  #2ab0ed 0%,#e4f5fc 100%); /* Chrome10+,Safari5.1+ */
+				background: -o-linear-gradient(top,  #2ab0ed 0%,#e4f5fc 100%); /* Opera 11.10+ */
+				background: -ms-linear-gradient(top,  #2ab0ed 0%,#e4f5fc 100%); /* IE10+ */
+				background: linear-gradient(to bottom,  #2ab0ed 0%,#e4f5fc 100%); /* W3C */
+				filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#2ab0ed', endColorstr='#e4f5fc',GradientType=0 ); /* IE6-9 */
+
+				
+				margin: 150px auto 0px auto;
+				width: 800px;
+				height: 600px;
+				overflow: hidden;
+				z-index:0;
+			}
+			#start_screen {
+				position: absolute;
+				background-color: black;
+				vertical-align: middle;	
+				color: yellow;
+				width: 100%;
+				height: 100%;
+				z-index:100;
+			}
+			
+			#start_screen div {
+				height: 100%;
+			}
+			#start_screen h1 {
+				text-decoration: blink;
+				margin: auto;
+				padding-top: 250px;
+			}
+			
+			#curtain {
+				position: absolute;
+				background-color: black;
+				vertical-align: middle;	
+				color: yellow;
+				width: 100%;
+				height: 100%;
+				z-index:99;
+				line-height: 309px;
+			}
+			
+			#dialog {
+				display: none;
+				background-color: #DDD;
+				border: 5px solid grey;
+				border-radius: 15px;
+				position: absolute;
+				text-align: left;
+				height: 100px;
+				width: 770px;
+				left: 10px;
+				top: 10px;
+				overflow: hidden;
+				padding: 15px 0px ;
+				z-index:4;
+			}
+			
+			#dialog p {
+				font-family: 'VT323' !important;
+				font-style: normal;
+				font-size: 24pt;
+				margin: 0;
+				padding: 0px 15px ; 
+			}
+			#ground {
+				position: absolute;
+				height: 55px;
+				left: -10px;
+				bottom: 0;
+				z-index:5;
+			}
+			#nearground {
+				position: absolute;
+				height: 600px;
+				left: -10px;
+				bottom: 0;
+				z-index:0;
+			}
+			#farground {
+				position: absolute;
+				height: 600px;
+				left: -10px;
+				top: 0;
+				z-index:-3;
+			}
+			#midground {
+				position: absolute;
+				height: 200px;
+				left: -10px;
+				bottom: 40px;
+				z-index:-2;
+			}
+			.static {
+				border: 0px solid black;
+				position: absolute;
+				bottom: 40px;
+				overflow: hidden;	
+				z-index: 2;		
+			}
+			.plant, .front {
+				z-index: 6;
+			}
+			.monster>img {
+				position: absolute;
+				left: 0px;
+				top: 0px;
+				width: 32px;		
+			}
+			.monster {
+				border: 0px solid black;
+				position: absolute;
+				bottom: 45px;
+				height: 32px;
+				width: 32px;
+				overflow: hidden;			
+			}
+			.monster>img {
+				position: absolute;
+				left: 0px;
+				top: 0px;
+				width: 96px;		
+			}
+			.NPC {
+				position: absolute;
+				left: 0px;
+				bottom: 45px;
+				height: 64px;
+				width: 64px;
+				overflow: hidden;	
+				z-index: 3;		
+			}
+			.NPC>img {
+				position: absolute;
+				left: 0px;
+				top: -64px;
+				width: 192px;		
+			}
+			.pet {
+				position: absolute;
+				left: 0px;
+				bottom: 45px;
+				height: 32px;
+				width: 32px;
+				overflow: hidden;	
+			}
+			.pet>img{
+				position: absolute;
+				top: -32px;
+				width: 96px;
+			}
+			#char_crop {
+				/* border: 1px solid black; */
+				position: absolute;
+				left: 400px;
+				bottom: 45px;
+				height: 64px;
+				width: 64px;
+				overflow: hidden;
+			}
+			#k {
+				position: absolute;
+				left: 0px;
+				top: -64px;
+				width: 192px;
+				z-index: 4;
+			}
+			#controller{
+				width: 800px;
+				margin:auto;
+			}
+			.keyEmu{
+				padding: 20px;
+				margin: 0 40px;
+				display: inline-block;
+				background-image: URL("/images/green-button.png");
+				background-size: 100%;
+				/*background-color: red;*/
+				width: 64px;
+				height: 64px;
+			}
+			
+			.keyEmu:active{
+				background-image: URL("/images/green-button-down.png");
+			}
+			
+			#inventory{
+				position: absolute;
+				left: 0px;
+				top: 0px;
+				width: 100%;
+				z-index: 3;
+				text-align: left;
+			}
+			
+			#inventory .invItem{
+				width: 32px;
+				padding: 16px;
+			}
+			
+			#mute{
+				position: absolute;
+				right: 32px;
+				top: 32px;
+				width: 32px;
+				overflow: hidden;
+				z-index: 3;
+			}
+			#mute img{
+				width: 32px;
+			}
+			.counter {
+				position:absolute;
+				bottom: 0px;
+				height: 256px;
+				width: 64px;	
+				overflow: hidden;
+				z-index: 1;
+			}
+			.counter #number {
+				border:8px solid grey;
+				height: 64px;
+				width: 48px;
+				background-color:black;
+				color: white;
+				
+				font-size: 48pt;
+				
+			}
+			.counter #c_button {
+				background-image: URL("/images/red-button.png");
+				background-size: 100%;
+				width: 56px;
+				height: 56px;
+				margin-top: 16px;
+				/*
+				border-radius: 32px;
+				background-color: red;
+				border: 4px solid black;
+				*/
+			}
+			.counter #c_button:active {
+				/* background-image: URL("/images/red-button-down.png"); */
+			}
+			
+			#credit_cont{
+				position: absolute;
+				width: 600px;
+				height: 400px;
+				left: 100px;
+				top: -50px;
+				
+				-webkit-perspective: 600px;
+				-moz-perspective: 600px;
+				-o-perspective: 600px;
+				perspective: 600px;
+				
+				z-index: 5;
+			}
+			#credit_box{
+				position: absolute;
+				/*border: 4px solid red; */
+				
+				height: 100%;
+				width: 100%;
+				
+				-webkit-transform: rotateX( 45deg );
+				-moz-transform: rotateX( 45deg );
+				-o-transform: rotateX( 45deg );
+				transform: rotateX( 45deg );
+				overflow: hidden;
+			}
+			#credit_text{
+				position: absolute;
+				text-align: left;
+				font-family: "Droid Sans", arial, verdana, sans-serif;
+				font-weight: 700;
+				font-size: 18pt;
+				color: #ff6;
+				top: 450px;
+			}
+			
+			#font_puzz{
+				font-family: 'Impact' 'Coda' !important;
+			}
+			.hidden{
+				display: none;
+			}
+			
+			#US{
+				display: none;
+				position: absolute;
+				left: 200px;
+				top: 185px;
+				width: 400px;
+				height: 275px;
+				overflow: hidden;
+				z-index: 10;
+			}
+			#US img{
+				position: absolute;
+				top: -30px;
+				left: 0px;
+				width: 100%;
+			}
+			
+			
+			
+		</style>
+	</head>
+	<body>
+		<div id="outer">
+			<div id="container">
+				<div id="viewport">
+					<div id="mute"><img src="/images/audio.png" /></div>
+					<div id="inventory"></div>
+					<!-- <div class="counter"><div id="number">9</div><div id="c_button"></div></div> -->
+					<div id="dialog"><p>..</p> </div>
+					<div id="start_screen"><div><h1>Press Start</h1></div></div>
+					<div id="curtain"></div>
+					
+					<img id="ground" src="/images/pixel.png" />
+					<img id="nearground" src="/images/pixel.png" />
+					<img id="farground" src="/images/pixel.png" />
+					<img id="midground" src="/images/pixel.png" />
+					<div id="char_crop">
+						<img id="k" src="/images/k_green_dress.png" />
+					</div>
+					<div id="US"><img src="/images/US.jpg" /></div>
+				</div>
+				<div id="controller">
+					<div id="mv_left" class="keyEmu" value="37"> left<br/>&nbsp;</div> 
+					<div id="mv_right" class="keyEmu" value="39" > Right<br/>&nbsp;</div>
+					<div class="keyEmu" value="32" > Jump<br/>(space)</div>
+					<div class="keyEmu" value="84" > Talk<br/>(enter)</div>
+				</div>
+			</div>
+			<div class="hidden">
+			pos: <div id="pos"></div>
+			y_vel: <div id="y_vel"></div>
+			is_moving: <div id="is_mov"></div>
+			</div>
+			<img class="hidden" src="/images/red-button-down.png" />
+			<img class="hidden" src="/images/green-button-down.png" />
+		</div>
+
+	</body>
+</html>
